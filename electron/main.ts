@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { DB } from './db';
 import { ollamaService } from './ollama';
 
@@ -68,6 +69,7 @@ app.whenReady().then(() => {
   ipcMain.handle('delete-session', (_, id) => DB.deleteSession(id));
   ipcMain.handle('rename-session', (_, id, title) => DB.renameSession(id, title));
   ipcMain.handle('delete-last-message', (_, sessionId) => DB.deleteLastAssistantMessage(sessionId));
+  ipcMain.handle('truncate-messages', (_, sessionId, keepCount) => DB.truncateSessionMessages(sessionId, keepCount));
 
   ipcMain.handle('generate-title', async (_, sessionId, model, prompt) => {
     try {
@@ -83,6 +85,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-settings', () => DB.getSettings());
   ipcMain.handle('save-settings', (_, settings) => DB.saveSettings(settings));
+
+  ipcMain.handle('get-system-stats', () => {
+    return {
+      freemem: os.freemem(),
+      totalmem: os.totalmem()
+    };
+  });
 
   ipcMain.on('chat-stop', (_, sessionId) => ollamaService.stopStream(sessionId));
   // --- File Handlers ---
@@ -180,12 +189,18 @@ app.whenReady().then(() => {
       let assistantResponse = '';
 
       for await (const chunk of stream) {
-        assistantResponse += chunk.message.content;
-        event.sender.send(`chat-stream-chunk-${sessionId}`, chunk.message.content);
+        if (chunk.message?.content) {
+          assistantResponse += chunk.message.content;
+          event.sender.send(`chat-stream-chunk-${sessionId}`, chunk.message.content);
+        }
+        if (chunk.done && chunk.eval_count && chunk.eval_duration) {
+          const tokensPerSec = (chunk.eval_count / chunk.eval_duration) * 1e9;
+          event.sender.send(`chat-stream-stats-${sessionId}`, tokensPerSec);
+        }
       }
 
       // Save AI's complete response
-      DB.saveMessage(sessionId, 'assistant', assistantResponse);
+      DB.saveMessage(sessionId, 'assistant', assistantResponse, undefined, model);
       event.sender.send(`chat-stream-end-${sessionId}`);
     } catch (error: any) {
       console.error(error);

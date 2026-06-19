@@ -8,10 +8,12 @@ contextBridge.exposeInMainWorld('api', {
   renameSession: (id: string, title: string) => ipcRenderer.invoke('rename-session', id, title),
   getMessages: (sessionId: string) => ipcRenderer.invoke('get-messages', sessionId),
   deleteLastMessage: (sessionId: string) => ipcRenderer.invoke('delete-last-message', sessionId),
+  truncateMessages: (sessionId: string, keepCount: number) => ipcRenderer.invoke('truncate-messages', sessionId, keepCount),
   generateTitle: (sessionId: string, model: string, prompt: string) => ipcRenderer.invoke('generate-title', sessionId, model, prompt),
 
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),
+  getSystemStats: () => ipcRenderer.invoke('get-system-stats'),
 
   // Files
   selectFile: () => ipcRenderer.invoke('select-file'),
@@ -33,6 +35,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on(`chat-stream-chunk-${sessionId}`, (_, chunk) => callback(chunk)),
   onStreamEnd: (sessionId: string, callback: () => void) => 
     ipcRenderer.on(`chat-stream-end-${sessionId}`, () => callback()),
+  onStreamStats: (sessionId: string, callback: (stats: number) => void) => 
+    ipcRenderer.on(`chat-stream-stats-${sessionId}`, (_, stats) => callback(stats)),
   onStreamError: (sessionId: string, callback: (err: string) => void) =>
     ipcRenderer.on(`chat-stream-error-${sessionId}`, (_, err) => callback(err)),
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),

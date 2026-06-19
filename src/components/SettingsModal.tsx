@@ -5,6 +5,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
   const [systemPrompt, setSystemPrompt] = useState('');
   const [temperature, setTemperature] = useState('0.7');
   const [ollamaUrl, setOllamaUrl] = useState('http://127.0.0.1:11434');
+  const [theme, setTheme] = useState('slate');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -13,6 +14,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
         if (settings.systemPrompt !== undefined) setSystemPrompt(settings.systemPrompt);
         if (settings.temperature !== undefined) setTemperature(settings.temperature);
         if (settings.ollamaUrl !== undefined) setOllamaUrl(settings.ollamaUrl);
+        if (settings.theme !== undefined) setTheme(settings.theme);
       });
     }
   }, [isOpen]);
@@ -25,6 +27,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       systemPrompt,
       temperature,
       ollamaUrl,
+      theme,
     });
     setIsSaving(false);
     onClose();
@@ -78,6 +81,19 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500"
             />
             <p className="text-xs text-slate-500">Change this if your Ollama instance is hosted on another machine.</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-300">App Theme</label>
+            <select
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500"
+            >
+              <option value="slate">Slate (Default Dark)</option>
+              <option value="oled">OLED (Pure Black)</option>
+              <option value="neon">Neon Cyberpunk</option>
+            </select>
           </div>
         </div>
 

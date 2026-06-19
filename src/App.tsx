@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Check, Copy, Settings2, Trash2, Edit2, RotateCcw, StopCircle, Search, Settings, Paperclip, X } from 'lucide-react';
+import { Check, Copy, Settings2, Trash2, Edit2, RotateCcw, StopCircle, Search, Settings, Paperclip, X, Zap, Download, Mic, MicOff } from 'lucide-react';
 import ModelManager from './components/ModelManager';
 import SettingsModal from './components/SettingsModal';
 
@@ -12,17 +12,16 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const match = /language-(\w+)/.exec(className || '');
-  const language = match ? match[1] : '';
+  let language = match ? match[1] : 'text';
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const contentStr = String(children).replace(/\n$/, '');
+  if (language === 'text' && contentStr.trim().startsWith('<') && contentStr.trim().endsWith('>')) {
+    language = 'html';
+  }
 
-  const isHtml = language === 'html';
+  const isHtml = language === 'html' || language === 'xml';
 
-  if (!inline && match) {
+  if (!inline) {
     return (
       <div className="relative group my-4 rounded-lg overflow-hidden bg-[#1E1E1E] border border-slate-700 flex flex-col">
         <div className="flex items-center justify-between px-4 py-2 bg-slate-800 text-slate-400 text-xs font-sans border-b border-slate-700/50">
@@ -46,7 +45,11 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
             )}
           </div>
           <button 
-            onClick={handleCopy}
+            onClick={() => {
+              navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
             className="hover:text-slate-200 transition-colors p-1.5 rounded flex items-center gap-1.5 hover:bg-slate-700"
             title="Copy code"
           >
@@ -89,7 +92,7 @@ function App() {
   const { 
     sessions, activeSessionId, messages, models, activeModel, isStreaming, attachments,
     loadSessions, createSession, setActiveSession, loadModels, setActiveModel, sendMessage,
-    deleteSession, renameSession, stopStream, regenerateLastMessage, attachFile, removeAttachment
+    deleteSession, renameSession, stopStream, regenerateLastMessage, editMessage, attachFile, removeAttachment
   } = useChatStore();
 
   const [input, setInput] = useState('');
@@ -98,7 +101,12 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingMessageText, setEditingMessageText] = useState('');
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  const [systemStats, setSystemStats] = useState<{ freemem: number, totalmem: number } | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleCopyMessage = (text: string, index: number) => {
@@ -107,14 +115,88 @@ function App() {
     setTimeout(() => setCopiedMessageIndex(null), 2000);
   };
 
+  const handleExportChat = () => {
+    const sessionName = sessions.find(s => s.id === activeSessionId)?.title || 'Untitled';
+    let md = `# ${sessionName}\n\n`;
+    messages.forEach(m => {
+      md += `### ${m.role === 'user' ? 'User' : 'Assistant'}\n`;
+      md += `${m.content}\n\n`;
+    });
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chat-${activeSessionId}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     loadSessions();
     loadModels();
+    
+    const interval = setInterval(async () => {
+      const stats = await window.api.getSystemStats();
+      setSystemStats(stats);
+    }, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    window.api.getSettings().then(settings => {
+      document.body.className = `theme-${settings.theme || 'slate'}`;
+    });
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          }
+        }
+        if (finalTranscript) {
+          setInput(prev => prev + (prev.length > 0 && !prev.endsWith(' ') ? ' ' : '') + finalTranscript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) {
+      alert("Speech recognition is not supported in this environment.");
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
 
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
@@ -207,10 +289,26 @@ function App() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Title Bar Area (Draggable) */}
         <div className="h-14 border-b border-slate-800 flex items-center justify-between px-6 drag-region select-none">
-          <div className="flex-1"></div>
+          <div className="flex-1 flex items-center gap-4">
+            {systemStats && (
+              <div className="non-drag-region text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-800/50 px-2 py-1 rounded border border-slate-700/50 flex items-center gap-1.5" title="System RAM Usage">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                RAM: {((systemStats.totalmem - systemStats.freemem) / 1024 / 1024 / 1024).toFixed(1)} / {(systemStats.totalmem / 1024 / 1024 / 1024).toFixed(1)} GB
+              </div>
+            )}
+          </div>
           
           {/* Model Selector */}
           <div className="non-drag-region flex items-center gap-2">
+            {messages.length > 0 && (
+              <button 
+                onClick={handleExportChat}
+                className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition"
+                title="Export Chat to Markdown"
+              >
+                <Download size={18} />
+              </button>
+            )}
             <button 
               onClick={() => setIsSettingsOpen(true)}
               className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition"
@@ -247,7 +345,7 @@ function App() {
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto space-y-4 h-full flex flex-col">
+          <div className="max-w-6xl mx-auto space-y-4 h-full flex flex-col">
             {!activeSessionId && (
                <div className="flex-1 flex items-center justify-center text-slate-500">
                  Select or create a chat to begin.
@@ -260,8 +358,8 @@ function App() {
             )}
             {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-3xl p-4 rounded-xl shadow-md ${
-                msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-200 overflow-hidden'
+              <div className={`w-full max-w-[95%] lg:max-w-[90%] xl:max-w-5xl p-4 rounded-xl shadow-md ${
+                msg.role === 'user' ? 'bg-blue-600 text-white w-auto max-w-[85%]' : 'bg-slate-800 border border-slate-700 text-slate-200 overflow-hidden'
               }`}>
                 {msg.images && msg.images.length > 0 && (
                   <div className="flex gap-2 flex-wrap mb-3">
@@ -271,7 +369,38 @@ function App() {
                   </div>
                 )}
                 {msg.role === 'user' ? (
-                  <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  editingMessageIndex === i ? (
+                    <div className="w-full">
+                      <textarea 
+                        value={editingMessageText}
+                        onChange={(e) => setEditingMessageText(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-slate-200 min-h-[100px] outline-none"
+                      />
+                      <div className="flex justify-end gap-2 mt-2">
+                        <button onClick={() => setEditingMessageIndex(null)} className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-white transition">Cancel</button>
+                        <button 
+                          onClick={() => {
+                            editMessage(i, editingMessageText);
+                            setEditingMessageIndex(null);
+                          }} 
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition"
+                        >
+                          Save & Submit
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="group/user relative">
+                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      <button 
+                        onClick={() => { setEditingMessageIndex(i); setEditingMessageText(msg.content); }}
+                        className="absolute -top-2 -right-2 p-1.5 opacity-0 group-hover/user:opacity-100 bg-slate-800 rounded-lg hover:bg-slate-700 transition border border-slate-700"
+                        title="Edit Message"
+                      >
+                        <Edit2 size={12} className="text-slate-400" />
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <div className="markdown-body">
                     {msg.content === '' && msg.isStreaming ? (
@@ -309,23 +438,36 @@ function App() {
                 )}
                 
                 {!msg.isStreaming && msg.role === 'assistant' && (
-                  <div className="mt-3 pt-2 border-t border-slate-700/50 flex justify-end gap-3">
-                    <button 
-                      onClick={() => handleCopyMessage(msg.content, i)}
-                      className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition"
-                      title="Copy Message"
-                    >
-                      {copiedMessageIndex === i ? <><Check size={13} className="text-green-400"/> Copied</> : <><Copy size={13} /> Copy</>}
-                    </button>
-                    {i === messages.length - 1 && (
+                  <div className="mt-3 pt-2 border-t border-slate-700/50 flex justify-between items-center">
+                    <div className="flex gap-2 items-center">
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500 bg-slate-900/50 px-2 py-0.5 rounded border border-slate-700/50">
+                        {msg.model || 'Unknown Model'}
+                      </div>
+                      {msg.tokensPerSec && (
+                        <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-800/50 px-2 py-0.5 rounded border border-slate-700/50 flex items-center gap-1" title="Generation Speed">
+                          <Zap size={10} className="text-yellow-500" />
+                          {msg.tokensPerSec.toFixed(1)} T/s
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-3">
                       <button 
-                        onClick={regenerateLastMessage}
+                        onClick={() => handleCopyMessage(msg.content, i)}
                         className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition"
-                        title="Regenerate Message"
+                        title="Copy Message"
                       >
-                        <RotateCcw size={13} /> Regenerate
+                        {copiedMessageIndex === i ? <><Check size={13} className="text-green-400"/> Copied</> : <><Copy size={13} /> Copy</>}
                       </button>
-                    )}
+                      {i === messages.length - 1 && (
+                        <button 
+                          onClick={regenerateLastMessage}
+                          className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition"
+                          title="Regenerate Message"
+                        >
+                          <RotateCcw size={13} /> Regenerate
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -337,7 +479,7 @@ function App() {
 
         {/* Input Area */}
         <div className="p-4 bg-slate-900 border-t border-slate-800">
-          <div className="max-w-4xl mx-auto flex flex-col gap-2 relative">
+          <div className="max-w-6xl mx-auto flex flex-col gap-2 relative">
             {isStreaming && (
               <div className="absolute -top-12 left-0 right-0 flex justify-center z-10">
                 <button 
@@ -392,6 +534,14 @@ function App() {
                   "Message AI..."
                 }
               />
+              <button 
+                onClick={toggleListening}
+                disabled={isStreaming || !activeSessionId || !activeModel}
+                className={`bg-slate-800 border ${isListening ? 'border-red-500 text-red-500' : 'border-slate-700 text-slate-300'} hover:bg-slate-700 px-4 rounded-lg transition disabled:opacity-50 flex items-center justify-center`}
+                title="Voice Input (Requires Microphone)"
+              >
+                {isListening ? <MicOff size={20} className="animate-pulse" /> : <Mic size={20} />}
+              </button>
               <button 
                 onClick={handleSend}
                 disabled={isStreaming || !activeSessionId || !activeModel}

@@ -5,6 +5,8 @@ interface Message {
   content: string;
   images?: string[];
   isStreaming?: boolean;
+  model?: string;
+  tokensPerSec?: number;
 }
 
 interface Session {
@@ -33,6 +35,7 @@ interface ChatState {
   renameSession: (id: string, title: string) => Promise<void>;
   stopStream: () => void;
   regenerateLastMessage: () => Promise<void>;
+  editMessage: (index: number, newContent: string) => Promise<void>;
   
   attachFile: () => Promise<void>;
   removeAttachment: (index: number) => void;
@@ -111,7 +114,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const images = attachments.filter(a => a.type === 'image').map(a => a.data);
     const newMsg = { role: 'user', content, images: images.length > 0 ? images : undefined };
-    const newMessages = [...messages, newMsg, { role: 'assistant', content: '', isStreaming: true }];
+    const newMessages = [...messages, newMsg, { role: 'assistant', content: '', isStreaming: true, model: activeModel }];
     
     set({ messages: newMessages, isStreaming: true, attachments: [] });
     get()._startStream(activeSessionId, newMessages.slice(0, -1), activeModel); // don't send the empty assistant msg to API
@@ -151,7 +154,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     
     const payloadMessages = [...newMessages];
-    newMessages.push({ role: 'assistant', content: '', isStreaming: true });
+    newMessages.push({ role: 'assistant', content: '', isStreaming: true, model: activeModel });
+    
+    set({ messages: newMessages, isStreaming: true });
+    get()._startStream(activeSessionId, payloadMessages, activeModel);
+  },
+
+  editMessage: async (index: number, newContent: string) => {
+    const { activeSessionId, activeModel, messages } = get();
+    if (!activeSessionId || !activeModel) return;
+
+    await window.api.truncateMessages(activeSessionId, index);
+
+    const newMessages = messages.slice(0, index);
+    newMessages.push({ role: 'user', content: newContent });
+    
+    const payloadMessages = [...newMessages];
+    newMessages.push({ role: 'assistant', content: '', isStreaming: true, model: activeModel });
     
     set({ messages: newMessages, isStreaming: true });
     get()._startStream(activeSessionId, payloadMessages, activeModel);
@@ -166,6 +185,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           msgs[msgs.length - 1] = { ...last, content: last.content + chunk };
         } else {
           msgs.push({ role: 'assistant', content: chunk, isStreaming: true });
+        }
+        return { messages: msgs };
+      });
+    });
+
+    window.api.onStreamStats(activeSessionId, (stats) => {
+      set((state) => {
+        const msgs = [...state.messages];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === 'assistant') {
+          last.tokensPerSec = stats;
         }
         return { messages: msgs };
       });

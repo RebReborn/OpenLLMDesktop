@@ -26,6 +26,8 @@ let node_fs$1 = __toESM(node_fs, 1);
 node_fs = __toESM(node_fs);
 let node_path = require("node:path");
 node_path = __toESM(node_path, 1);
+let node_os = require("node:os");
+node_os = __toESM(node_os);
 //#region electron/db.ts
 var Database = eval("require")("better-sqlite3");
 var dbPath = node_path.default.join(electron.app.getPath("userData"), "openllmdesktop.db");
@@ -44,6 +46,7 @@ db.exec(`
     content TEXT,
     createdAt INTEGER,
     images TEXT,
+    model TEXT,
     FOREIGN KEY(sessionId) REFERENCES sessions(id) ON DELETE CASCADE
   );
 
@@ -62,6 +65,9 @@ db.exec(`
 try {
 	db.exec("ALTER TABLE messages ADD COLUMN images TEXT;");
 } catch (e) {}
+try {
+	db.exec("ALTER TABLE messages ADD COLUMN model TEXT;");
+} catch (e) {}
 var DB = {
 	createSession: (id, title) => {
 		db.prepare("INSERT INTO sessions (id, title, createdAt) VALUES (?, ?, ?)").run(id, title, Date.now());
@@ -69,11 +75,11 @@ var DB = {
 	getSessions: () => {
 		return db.prepare("SELECT * FROM sessions ORDER BY createdAt DESC").all();
 	},
-	saveMessage: (sessionId, role, content, images) => {
-		db.prepare("INSERT INTO messages (sessionId, role, content, createdAt, images) VALUES (?, ?, ?, ?, ?)").run(sessionId, role, content, Date.now(), images ? JSON.stringify(images) : null);
+	saveMessage: (sessionId, role, content, images, model) => {
+		db.prepare("INSERT INTO messages (sessionId, role, content, createdAt, images, model) VALUES (?, ?, ?, ?, ?, ?)").run(sessionId, role, content, Date.now(), images ? JSON.stringify(images) : null, model || null);
 	},
 	getMessages: (sessionId) => {
-		return db.prepare("SELECT role, content, images FROM messages WHERE sessionId = ? ORDER BY createdAt ASC").all(sessionId).map((r) => ({
+		return db.prepare("SELECT role, content, images, model FROM messages WHERE sessionId = ? ORDER BY createdAt ASC").all(sessionId).map((r) => ({
 			...r,
 			images: r.images ? JSON.parse(r.images) : void 0
 		}));
@@ -94,6 +100,17 @@ var DB = {
         LIMIT 1
       ) AND role = 'assistant'
     `).run(sessionId);
+	},
+	truncateSessionMessages: (sessionId, keepCount) => {
+		db.prepare(`
+      DELETE FROM messages 
+      WHERE id IN (
+        SELECT id FROM messages 
+        WHERE sessionId = ? 
+        ORDER BY createdAt ASC 
+        LIMIT -1 OFFSET ?
+      )
+    `).run(sessionId, keepCount);
 	},
 	getSettings: () => {
 		const rows = db.prepare("SELECT * FROM settings").all();
@@ -1134,6 +1151,7 @@ electron.app.whenReady().then(() => {
 	electron.ipcMain.handle("delete-session", (_, id) => DB.deleteSession(id));
 	electron.ipcMain.handle("rename-session", (_, id, title) => DB.renameSession(id, title));
 	electron.ipcMain.handle("delete-last-message", (_, sessionId) => DB.deleteLastAssistantMessage(sessionId));
+	electron.ipcMain.handle("truncate-messages", (_, sessionId, keepCount) => DB.truncateSessionMessages(sessionId, keepCount));
 	electron.ipcMain.handle("generate-title", async (_, sessionId, model, prompt) => {
 		try {
 			const title = (await ollamaService.generateTitle(model, prompt)).replace(/["']/g, "").trim();
@@ -1146,6 +1164,12 @@ electron.app.whenReady().then(() => {
 	});
 	electron.ipcMain.handle("get-settings", () => DB.getSettings());
 	electron.ipcMain.handle("save-settings", (_, settings) => DB.saveSettings(settings));
+	electron.ipcMain.handle("get-system-stats", () => {
+		return {
+			freemem: node_os.default.freemem(),
+			totalmem: node_os.default.totalmem()
+		};
+	});
 	electron.ipcMain.on("chat-stop", (_, sessionId) => ollamaService.stopStream(sessionId));
 	electron.ipcMain.handle("select-file", async () => {
 		if (!win) return null;
@@ -1230,10 +1254,16 @@ electron.app.whenReady().then(() => {
 			const stream = await ollamaService.streamChat(sessionId, model, messages, systemPrompt, temperature);
 			let assistantResponse = "";
 			for await (const chunk of stream) {
-				assistantResponse += chunk.message.content;
-				event.sender.send(`chat-stream-chunk-${sessionId}`, chunk.message.content);
+				if (chunk.message?.content) {
+					assistantResponse += chunk.message.content;
+					event.sender.send(`chat-stream-chunk-${sessionId}`, chunk.message.content);
+				}
+				if (chunk.done && chunk.eval_count && chunk.eval_duration) {
+					const tokensPerSec = chunk.eval_count / chunk.eval_duration * 1e9;
+					event.sender.send(`chat-stream-stats-${sessionId}`, tokensPerSec);
+				}
 			}
-			DB.saveMessage(sessionId, "assistant", assistantResponse);
+			DB.saveMessage(sessionId, "assistant", assistantResponse, void 0, model);
 			event.sender.send(`chat-stream-end-${sessionId}`);
 		} catch (error) {
 			console.error(error);
