@@ -74,5 +74,16 @@ export const ollamaService = {
   generateEmbedding: async (model: string, text: string) => {
     const res = await getOllamaInstance().embeddings({ model, prompt: text });
     return res.embedding;
+  },
+  generateTitle: async (model: string, prompt: string) => {
+    const res = await getOllamaInstance().chat({
+      model,
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant. Generate a very short, 3 to 5 word title for the user\'s prompt. Do not include quotes, prefixes, or any conversational text. Just output the title.' },
+        { role: 'user', content: prompt }
+      ],
+      stream: false
+    });
+    return res.message.content;
   }
 };

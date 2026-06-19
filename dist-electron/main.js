@@ -1069,6 +1069,19 @@ var ollamaService = {
 			model,
 			prompt: text
 		})).embedding;
+	},
+	generateTitle: async (model, prompt) => {
+		return (await getOllamaInstance().chat({
+			model,
+			messages: [{
+				role: "system",
+				content: "You are a helpful assistant. Generate a very short, 3 to 5 word title for the user's prompt. Do not include quotes, prefixes, or any conversational text. Just output the title."
+			}, {
+				role: "user",
+				content: prompt
+			}],
+			stream: false
+		})).message.content;
 	}
 };
 //#endregion
@@ -1121,6 +1134,16 @@ electron.app.whenReady().then(() => {
 	electron.ipcMain.handle("delete-session", (_, id) => DB.deleteSession(id));
 	electron.ipcMain.handle("rename-session", (_, id, title) => DB.renameSession(id, title));
 	electron.ipcMain.handle("delete-last-message", (_, sessionId) => DB.deleteLastAssistantMessage(sessionId));
+	electron.ipcMain.handle("generate-title", async (_, sessionId, model, prompt) => {
+		try {
+			const title = (await ollamaService.generateTitle(model, prompt)).replace(/["']/g, "").trim();
+			DB.renameSession(sessionId, title);
+			return title;
+		} catch (e) {
+			console.error("Failed to generate title", e);
+			return null;
+		}
+	});
 	electron.ipcMain.handle("get-settings", () => DB.getSettings());
 	electron.ipcMain.handle("save-settings", (_, settings) => DB.saveSettings(settings));
 	electron.ipcMain.on("chat-stop", (_, sessionId) => ollamaService.stopStream(sessionId));

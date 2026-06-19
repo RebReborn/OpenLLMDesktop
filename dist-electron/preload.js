@@ -7,6 +7,7 @@ electron.contextBridge.exposeInMainWorld("api", {
 	renameSession: (id, title) => electron.ipcRenderer.invoke("rename-session", id, title),
 	getMessages: (sessionId) => electron.ipcRenderer.invoke("get-messages", sessionId),
 	deleteLastMessage: (sessionId) => electron.ipcRenderer.invoke("delete-last-message", sessionId),
+	generateTitle: (sessionId, model, prompt) => electron.ipcRenderer.invoke("generate-title", sessionId, model, prompt),
 	getSettings: () => electron.ipcRenderer.invoke("get-settings"),
 	saveSettings: (settings) => electron.ipcRenderer.invoke("save-settings", settings),
 	selectFile: () => electron.ipcRenderer.invoke("select-file"),

@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal';
 
 const CodeBlock = ({ inline, className, children, ...props }: any) => {
   const [copied, setCopied] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : '';
 
@@ -19,28 +20,60 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const isHtml = language === 'html';
+
   if (!inline && match) {
     return (
-      <div className="relative group my-4 rounded-lg overflow-hidden bg-[#1E1E1E] border border-slate-700">
-        <div className="flex items-center justify-between px-4 py-2 bg-slate-800 text-slate-400 text-xs font-sans">
-          <span className="uppercase">{language}</span>
+      <div className="relative group my-4 rounded-lg overflow-hidden bg-[#1E1E1E] border border-slate-700 flex flex-col">
+        <div className="flex items-center justify-between px-4 py-2 bg-slate-800 text-slate-400 text-xs font-sans border-b border-slate-700/50">
+          <div className="flex items-center gap-4">
+            <span className="uppercase font-semibold tracking-wider">{language}</span>
+            {isHtml && (
+              <div className="flex items-center gap-1 bg-slate-900 rounded-md p-0.5 border border-slate-700">
+                <button 
+                  onClick={() => setShowPreview(false)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-all ${!showPreview ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}
+                >
+                  Code
+                </button>
+                <button 
+                  onClick={() => setShowPreview(true)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-all ${showPreview ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}
+                >
+                  Preview
+                </button>
+              </div>
+            )}
+          </div>
           <button 
             onClick={handleCopy}
-            className="hover:text-slate-200 transition-colors p-1 flex items-center gap-1"
+            className="hover:text-slate-200 transition-colors p-1.5 rounded flex items-center gap-1.5 hover:bg-slate-700"
             title="Copy code"
           >
-            {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
+            {copied ? <><Check size={14} className="text-green-400"/> Copied</> : <><Copy size={14} /> Copy</>}
           </button>
         </div>
-        <SyntaxHighlighter
-          {...props}
-          style={vscDarkPlus}
-          language={language}
-          PreTag="div"
-          customStyle={{ margin: 0, padding: '1rem', background: 'transparent' }}
-        >
-          {String(children).replace(/\n$/, '')}
-        </SyntaxHighlighter>
+        
+        {showPreview && isHtml ? (
+          <div className="bg-white w-full rounded-b-lg overflow-hidden flex-1 relative" style={{ minHeight: '400px' }}>
+            <iframe 
+              srcDoc={String(children).replace(/\n$/, '')} 
+              className="absolute inset-0 w-full h-full border-0"
+              sandbox="allow-scripts allow-forms allow-popups allow-modals"
+              title="HTML Preview"
+            />
+          </div>
+        ) : (
+          <SyntaxHighlighter
+            {...props}
+            style={vscDarkPlus}
+            language={language}
+            PreTag="div"
+            customStyle={{ margin: 0, padding: '1rem', background: 'transparent' }}
+          >
+            {String(children).replace(/\n$/, '')}
+          </SyntaxHighlighter>
+        )}
       </div>
     );
   }
@@ -65,7 +98,14 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyMessage = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMessageIndex(index);
+    setTimeout(() => setCopiedMessageIndex(null), 2000);
+  };
 
   useEffect(() => {
     loadSessions();
@@ -206,18 +246,19 @@ function App() {
         </div>
 
         {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {!activeSessionId && (
-             <div className="h-full flex items-center justify-center text-slate-500">
-               Select or create a chat to begin.
-             </div>
-          )}
-          {activeSessionId && messages.length === 0 && (
-            <div className="h-full flex items-center justify-center text-slate-500">
-              Start a conversation with {activeModel || 'AI'}.
-            </div>
-          )}
-          {messages.map((msg, i) => (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-4xl mx-auto space-y-4 h-full flex flex-col">
+            {!activeSessionId && (
+               <div className="flex-1 flex items-center justify-center text-slate-500">
+                 Select or create a chat to begin.
+               </div>
+            )}
+            {activeSessionId && messages.length === 0 && (
+              <div className="flex-1 flex items-center justify-center text-slate-500">
+                Start a conversation with {activeModel || 'AI'}.
+              </div>
+            )}
+            {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-3xl p-4 rounded-xl shadow-md ${
                 msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-200 overflow-hidden'
@@ -267,20 +308,31 @@ function App() {
                   </div>
                 )}
                 
-                {!msg.isStreaming && msg.role === 'assistant' && i === messages.length - 1 && (
-                  <div className="mt-3 pt-2 border-t border-slate-700/50 flex justify-end">
+                {!msg.isStreaming && msg.role === 'assistant' && (
+                  <div className="mt-3 pt-2 border-t border-slate-700/50 flex justify-end gap-3">
                     <button 
-                      onClick={regenerateLastMessage}
+                      onClick={() => handleCopyMessage(msg.content, i)}
                       className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition"
+                      title="Copy Message"
                     >
-                      <RotateCcw size={13} /> Regenerate
+                      {copiedMessageIndex === i ? <><Check size={13} className="text-green-400"/> Copied</> : <><Copy size={13} /> Copy</>}
                     </button>
+                    {i === messages.length - 1 && (
+                      <button 
+                        onClick={regenerateLastMessage}
+                        className="text-xs flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition"
+                        title="Regenerate Message"
+                      >
+                        <RotateCcw size={13} /> Regenerate
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           ))}
           <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* Input Area */}

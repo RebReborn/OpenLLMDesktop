@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
   renameSession: (id: string, title: string) => ipcRenderer.invoke('rename-session', id, title),
   getMessages: (sessionId: string) => ipcRenderer.invoke('get-messages', sessionId),
   deleteLastMessage: (sessionId: string) => ipcRenderer.invoke('delete-last-message', sessionId),
+  generateTitle: (sessionId: string, model: string, prompt: string) => ipcRenderer.invoke('generate-title', sessionId, model, prompt),
 
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke('save-settings', settings),

@@ -6,6 +6,7 @@ interface Window {
     renameSession: (id: string, title: string) => Promise<void>;
     getMessages: (sessionId: string) => Promise<any[]>;
     deleteLastMessage: (sessionId: string) => Promise<void>;
+    generateTitle: (sessionId: string, model: string, prompt: string) => Promise<string | null>;
     getSettings: () => Promise<Record<string, string>>;
     saveSettings: (settings: Record<string, string>) => Promise<void>;
     selectFile: () => Promise<{ type: 'image' | 'document', data: string, path: string } | null>;

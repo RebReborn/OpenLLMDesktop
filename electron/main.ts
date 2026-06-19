@@ -69,6 +69,18 @@ app.whenReady().then(() => {
   ipcMain.handle('rename-session', (_, id, title) => DB.renameSession(id, title));
   ipcMain.handle('delete-last-message', (_, sessionId) => DB.deleteLastAssistantMessage(sessionId));
 
+  ipcMain.handle('generate-title', async (_, sessionId, model, prompt) => {
+    try {
+      const response = await ollamaService.generateTitle(model, prompt);
+      const title = response.replace(/["']/g, '').trim();
+      DB.renameSession(sessionId, title);
+      return title;
+    } catch (e) {
+      console.error('Failed to generate title', e);
+      return null;
+    }
+  });
+
   ipcMain.handle('get-settings', () => DB.getSettings());
   ipcMain.handle('save-settings', (_, settings) => DB.saveSettings(settings));
 

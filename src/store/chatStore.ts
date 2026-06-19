@@ -103,8 +103,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setActiveModel: (model: string) => set({ activeModel: model }),
 
   sendMessage: (content: string) => {
-    const { activeSessionId, activeModel, messages, attachments } = get();
+    const { activeSessionId, activeModel, messages, attachments, sessions } = get();
     if (!activeSessionId || !activeModel) return;
+
+    const currentSession = sessions.find(s => s.id === activeSessionId);
+    const isNewChat = currentSession && currentSession.title === 'New Chat' && messages.length === 0;
 
     const images = attachments.filter(a => a.type === 'image').map(a => a.data);
     const newMsg = { role: 'user', content, images: images.length > 0 ? images : undefined };
@@ -112,6 +115,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     
     set({ messages: newMessages, isStreaming: true, attachments: [] });
     get()._startStream(activeSessionId, newMessages.slice(0, -1), activeModel); // don't send the empty assistant msg to API
+
+    if (isNewChat) {
+      window.api.generateTitle(activeSessionId, activeModel, content).then(title => {
+        if (title) {
+          get().loadSessions();
+        }
+      });
+    }
   },
 
   stopStream: () => {
